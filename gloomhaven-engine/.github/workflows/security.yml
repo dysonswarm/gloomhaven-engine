@@ -1,0 +1,200 @@
+name: Security & Dependency Management
+
+on:
+  schedule:
+    # Run every Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # Security audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run npm audit
+        run: |
+          echo "🔍 Running security audit..."
+          npm audit --audit-level=info || true
+          
+      - name: Run npm audit (strict)
+        run: |
+          echo "🚨 Checking for high/critical vulnerabilities..."
+          npm audit --audit-level=high
+          
+      - name: Generate security report
+        run: |
+          echo "📊 Security Audit Report" > security-report.txt
+          echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> security-report.txt
+          echo "Repository: ${{ github.repository }}" >> security-report.txt
+          echo "" >> security-report.txt
+          npm audit --json > audit.json || true
+          echo "Full audit results saved in audit.json"
+          
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: |
+            security-report.txt
+            audit.json
+          retention-days: 30
+          
+  # License compliance check
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install license checker
+        run: npm install -g license-checker
+        
+      - name: Check licenses
+        run: |
+          echo "📄 Checking dependency licenses..."
+          license-checker --summary > license-summary.txt
+          license-checker --json > licenses.json
+          cat license-summary.txt
+          
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: |
+            license-summary.txt
+            licenses.json
+          retention-days: 30
+          
+  # Dependency updates check
+  dependency-updates:
+    name: Check for Dependency Updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Check for outdated packages
+        run: |
+          echo "📦 Checking for outdated dependencies..."
+          npm outdated || true
+          
+      - name: Generate update report
+        run: |
+          echo "📊 Dependency Update Report" > update-report.txt
+          echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> update-report.txt
+          echo "Repository: ${{ github.repository }}" >> update-report.txt
+          echo "" >> update-report.txt
+          echo "Outdated packages:" >> update-report.txt
+          npm outdated >> update-report.txt || true
+          
+      - name: Upload update report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-update-report
+          path: update-report.txt
+          retention-days: 30
+          
+  # CodeQL security analysis
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript,typescript
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build application
+        run: npm run build
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:javascript"
+          
+  # Create security summary
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [security-audit, license-check, dependency-updates, codeql-analysis]
+    if: always()
+    steps:
+      - name: Generate security summary
+        run: |
+          echo "🛡️ Security Summary Report"
+          echo "=========================="
+          echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Repository: ${{ github.repository }}"
+          echo "Workflow: ${{ github.workflow }}"
+          echo ""
+          echo "📊 Job Results:"
+          echo "- Security Audit: ${{ needs.security-audit.result }}"
+          echo "- License Check: ${{ needs.license-check.result }}"
+          echo "- Dependency Updates: ${{ needs.dependency-updates.result }}"
+          echo "- CodeQL Analysis: ${{ needs.codeql-analysis.result }}"
+          echo ""
+          if [[ "${{ needs.security-audit.result }}" == "success" && 
+                "${{ needs.license-check.result }}" == "success" && 
+                "${{ needs.codeql-analysis.result }}" == "success" ]]; then
+            echo "✅ All security checks passed!"
+          else
+            echo "⚠️ Some security checks require attention."
+          fi
+          echo ""
+          echo "📋 Recommendations:"
+          echo "1. Review any security vulnerabilities found"
+          echo "2. Update outdated dependencies regularly"
+          echo "3. Monitor license compliance"
+          echo "4. Address any CodeQL findings"
+          echo "5. Keep security tools up to date"
